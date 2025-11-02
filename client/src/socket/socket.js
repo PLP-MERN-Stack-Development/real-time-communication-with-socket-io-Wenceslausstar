@@ -1,10 +1,10 @@
 // socket.js - Socket.io client setup
 
-import { io } from 'socket.io-client';
-import { useEffect, useState } from 'react';
+import { io } from "socket.io-client";
+import { useEffect, useState } from "react";
 
 // Socket.io connection URL
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
 
 // Create socket instance
 export const socket = io(SOCKET_URL, {
@@ -21,12 +21,14 @@ export const useSocket = () => {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [readReceipts, setReadReceipts] = useState({});
+  const [myId, setMyId] = useState(socket.id || null);
 
   // Connect to socket server
   const connect = (username) => {
     socket.connect();
     if (username) {
-      socket.emit('user_join', username);
+      socket.emit("user_join", username);
     }
   };
 
@@ -37,17 +39,17 @@ export const useSocket = () => {
 
   // Send a message
   const sendMessage = (message) => {
-    socket.emit('send_message', { message });
+    socket.emit("send_message", { message });
   };
 
   // Send a private message
   const sendPrivateMessage = (to, message) => {
-    socket.emit('private_message', { to, message });
+    socket.emit("private_message", { to, message });
   };
 
   // Set typing status
   const setTyping = (isTyping) => {
-    socket.emit('typing', isTyping);
+    socket.emit("typing", isTyping);
   };
 
   // Socket event listeners
@@ -55,10 +57,34 @@ export const useSocket = () => {
     // Connection events
     const onConnect = () => {
       setIsConnected(true);
+      setMyId(socket.id);
+      // fetch initial messages and read receipts
+      (async () => {
+        try {
+          const res = await fetch(`${SOCKET_URL}/api/messages`);
+          if (res.ok) {
+            const msgs = await res.json();
+            setMessages(msgs);
+          }
+        } catch (err) {
+          // ignore
+        }
+
+        try {
+          const r = await fetch(`${SOCKET_URL}/api/read-receipts`);
+          if (r.ok) {
+            const receipts = await r.json();
+            setReadReceipts(receipts || {});
+          }
+        } catch (err) {
+          // ignore
+        }
+      })();
     };
 
     const onDisconnect = () => {
       setIsConnected(false);
+      setMyId(null);
     };
 
     // Message events
@@ -108,28 +134,38 @@ export const useSocket = () => {
       setTypingUsers(users);
     };
 
+    const onReadReceipt = ({ messageId, receipts }) => {
+      setReadReceipts((prev) => ({ ...prev, [messageId]: receipts }));
+    };
+
     // Register event listeners
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('receive_message', onReceiveMessage);
-    socket.on('private_message', onPrivateMessage);
-    socket.on('user_list', onUserList);
-    socket.on('user_joined', onUserJoined);
-    socket.on('user_left', onUserLeft);
-    socket.on('typing_users', onTypingUsers);
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("receive_message", onReceiveMessage);
+    socket.on("private_message", onPrivateMessage);
+    socket.on("user_list", onUserList);
+    socket.on("user_joined", onUserJoined);
+    socket.on("user_left", onUserLeft);
+    socket.on("typing_users", onTypingUsers);
+    socket.on("read_receipt", onReadReceipt);
 
     // Clean up event listeners
     return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('receive_message', onReceiveMessage);
-      socket.off('private_message', onPrivateMessage);
-      socket.off('user_list', onUserList);
-      socket.off('user_joined', onUserJoined);
-      socket.off('user_left', onUserLeft);
-      socket.off('typing_users', onTypingUsers);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("receive_message", onReceiveMessage);
+      socket.off("private_message", onPrivateMessage);
+      socket.off("user_list", onUserList);
+      socket.off("user_joined", onUserJoined);
+      socket.off("user_left", onUserLeft);
+      socket.off("typing_users", onTypingUsers);
+      socket.off("read_receipt", onReadReceipt);
     };
   }, []);
+
+  const sendReadReceipt = (messageId) => {
+    socket.emit("message_read", { messageId });
+  };
 
   return {
     socket,
@@ -138,12 +174,15 @@ export const useSocket = () => {
     messages,
     users,
     typingUsers,
+    myId,
     connect,
     disconnect,
     sendMessage,
     sendPrivateMessage,
     setTyping,
+    readReceipts,
+    sendReadReceipt,
   };
 };
 
-export default socket; 
+export default socket;
