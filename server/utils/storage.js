@@ -6,8 +6,9 @@ const DATA_FILE = path.join(DATA_DIR, "storage.json");
 
 // Default structure
 const DEFAULT = {
-  messages: [],
+  messages: [], // messages now include roomId, reactions, fileUrl, etc.
   readReceipts: {}, // { messageId: { userId: timestamp } }
+  rooms: ["general"], // default room
 };
 
 async function ensureDataFile() {
@@ -56,6 +57,20 @@ async function getReadReceipts() {
   return data.readReceipts || {};
 }
 
+async function getRooms() {
+  const data = await readData();
+  return data.rooms || ["general"];
+}
+
+async function addRoom(roomName) {
+  const data = await readData();
+  data.rooms = data.rooms || ["general"];
+  if (!data.rooms.includes(roomName)) {
+    data.rooms.push(roomName);
+    await writeData(data);
+  }
+}
+
 async function addMessage(message) {
   const data = await readData();
   data.messages = data.messages || [];
@@ -74,9 +89,42 @@ async function markMessageRead(messageId, userId) {
   return data.readReceipts[messageId];
 }
 
+async function addReaction(messageId, userId, reaction) {
+  const data = await readData();
+  data.messages = data.messages || [];
+  const message = data.messages.find((m) => String(m.id) === String(messageId));
+  if (message) {
+    message.reactions = message.reactions || {};
+    message.reactions[reaction] = message.reactions[reaction] || [];
+    if (!message.reactions[reaction].includes(userId)) {
+      message.reactions[reaction].push(userId);
+    }
+    await writeData(data);
+  }
+}
+
+async function removeReaction(messageId, userId, reaction) {
+  const data = await readData();
+  data.messages = data.messages || [];
+  const message = data.messages.find((m) => String(m.id) === String(messageId));
+  if (message && message.reactions && message.reactions[reaction]) {
+    message.reactions[reaction] = message.reactions[reaction].filter(
+      (id) => id !== userId
+    );
+    if (message.reactions[reaction].length === 0) {
+      delete message.reactions[reaction];
+    }
+    await writeData(data);
+  }
+}
+
 module.exports = {
   getMessages,
   getReadReceipts,
   addMessage,
   markMessageRead,
+  getRooms,
+  addRoom,
+  addReaction,
+  removeReaction,
 };

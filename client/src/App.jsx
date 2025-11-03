@@ -6,18 +6,43 @@ import Chat from "./components/Chat";
 
 function App() {
   const [username, setUsername] = useState("");
+  const [token, setToken] = useState("");
   const socket = useSocket();
 
-  // Persist username in sessionStorage so reloads keep the user
+  // Persist username and token in sessionStorage so reloads keep the user
   useEffect(() => {
-    const saved = sessionStorage.getItem("chat_username");
-    if (saved) setUsername(saved);
+    const savedUsername = sessionStorage.getItem("chat_username");
+    const savedToken = sessionStorage.getItem("chat_token");
+    if (savedUsername && savedToken) {
+      setUsername(savedUsername);
+      setToken(savedToken);
+    }
   }, []);
 
   useEffect(() => {
-    if (username) sessionStorage.setItem("chat_username", username);
-    else sessionStorage.removeItem("chat_username");
-  }, [username]);
+    if (username && token) {
+      sessionStorage.setItem("chat_username", username);
+      sessionStorage.setItem("chat_token", token);
+    } else {
+      sessionStorage.removeItem("chat_username");
+      sessionStorage.removeItem("chat_token");
+    }
+  }, [username, token]);
+
+  // Handle token expiration - if socket disconnects due to auth, logout
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const currentToken = sessionStorage.getItem("chat_token");
+      if (!currentToken && token) {
+        // Token was cleared, logout
+        setUsername("");
+        setToken("");
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [token]);
 
   return (
     <div className="app-root">
@@ -26,12 +51,21 @@ function App() {
       </header>
 
       {!username ? (
-        <Login onSubmit={(name) => setUsername(name)} />
+        <Login
+          onSubmit={(name, jwtToken) => {
+            setUsername(name);
+            setToken(jwtToken);
+          }}
+        />
       ) : (
         <Chat
           username={username}
+          token={token}
           socket={socket}
-          onLogout={() => setUsername("")}
+          onLogout={() => {
+            setUsername("");
+            setToken("");
+          }}
         />
       )}
     </div>
