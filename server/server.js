@@ -133,6 +133,7 @@ chatNamespace.on("connection", (socket) => {
       username: authenticatedUsername,
       id: socket.id,
     });
+    io.to(room).emit("user_status", { userId: socket.id, status: "online" });
     socket.emit("room_joined", room);
     console.log(`${authenticatedUsername} joined room: ${room}`);
   });
@@ -151,6 +152,11 @@ chatNamespace.on("connection", (socket) => {
       username: user.username,
       id: socket.id,
     });
+
+    if (!availableRooms.includes(newRoom)) {
+      availableRooms.push(newRoom);
+      storage.addRoom(newRoom);
+    }
 
     // Join new room
     user.room = newRoom;
@@ -329,6 +335,7 @@ chatNamespace.on("connection", (socket) => {
     if (users[socket.id]) {
       const { username, room } = users[socket.id];
       io.to(room).emit("user_left", { username, id: socket.id });
+      io.to(room).emit("user_status", { userId: socket.id, status: "offline" });
       console.log(`${username} left the chat`);
 
       delete rooms[room][socket.id];
@@ -474,7 +481,7 @@ app.get("/", (req, res) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

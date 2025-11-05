@@ -1,112 +1,104 @@
 const fs = require("fs").promises;
 const path = require("path");
 
-const DATA_DIR = path.join(__dirname, "..", "data");
-const DATA_FILE = path.join(DATA_DIR, "storage.json");
+const messagesFilePath = path.join(__dirname, "..", "data", "messages.json");
+const roomsFilePath = path.join(__dirname, "..", "data", "rooms.json");
+const readReceiptsFilePath = path.join(
+  __dirname,
+  "..",
+  "data",
+  "readReceipts.json"
+);
 
-// Default structure
-const DEFAULT = {
-  messages: [], // messages now include roomId, reactions, fileUrl, etc.
-  readReceipts: {}, // { messageId: { userId: timestamp } }
-  rooms: ["general"], // default room
+// Ensure data directory exists
+const ensureDataDir = async () => {
+  try {
+    await fs.mkdir(path.dirname(messagesFilePath), { recursive: true });
+  } catch (err) {
+    console.error("Could not create data directory", err);
+  }
 };
 
-async function ensureDataFile() {
+// Helper to read JSON file
+const readJsonFile = async (filePath, defaultValue = []) => {
   try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    // If file doesn't exist, create with default
-    try {
-      await fs.access(DATA_FILE);
-    } catch (err) {
-      await fs.writeFile(DATA_FILE, JSON.stringify(DEFAULT, null, 2), "utf8");
+    await ensureDataDir();
+    const data = await fs.readFile(filePath, "utf-8");
+    return JSON.parse(data);
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      // File doesn't exist, create it with default value
+      await writeJsonFile(filePath, defaultValue);
+      return defaultValue;
     }
-  } catch (err) {
-    console.error("Failed to ensure data file", err);
-    throw err;
+    console.error(`Failed to read from ${filePath}`, err);
+    return defaultValue; // Return default value on error
   }
-}
+};
 
-async function readData() {
-  await ensureDataFile();
+// Helper to write JSON file
+const writeJsonFile = async (filePath, data) => {
   try {
-    const raw = await fs.readFile(DATA_FILE, "utf8");
-    return JSON.parse(raw || "{}");
+    await ensureDataDir();
+    await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
   } catch (err) {
-    console.error("Failed to read storage file", err);
-    return { ...DEFAULT };
+    console.error(`Failed to write to ${filePath}`, err);
   }
-}
+};
 
-async function writeData(data) {
-  await ensureDataFile();
-  try {
-    await fs.writeFile(DATA_FILE, JSON.stringify(data, null, 2), "utf8");
-  } catch (err) {
-    console.error("Failed to write storage file", err);
-    throw err;
+// Message-related functions
+const getMessages = () => readJsonFile(messagesFilePath, []);
+const addMessage = async (message) => {
+  const messages = await getMessages();
+  messages.push(message);
+  await writeJsonFile(messagesFilePath, messages);
+};
+
+// Room-related functions
+const getRooms = () => readJsonFile(roomsFilePath, ["general"]);
+const addRoom = async (room) => {
+  const rooms = await getRooms();
+  if (!rooms.includes(room)) {
+    rooms.push(room);
+    await writeJsonFile(roomsFilePath, rooms);
   }
-}
+};
 
-async function getMessages() {
-  const data = await readData();
-  return data.messages || [];
-}
-
-async function getReadReceipts() {
-  const data = await readData();
-  return data.readReceipts || {};
-}
-
-async function getRooms() {
-  const data = await readData();
-  return data.rooms || ["general"];
-}
-
-async function addRoom(roomName) {
-  const data = await readData();
-  data.rooms = data.rooms || ["general"];
-  if (!data.rooms.includes(roomName)) {
-    data.rooms.push(roomName);
-    await writeData(data);
+// Read receipt functions
+const getReadReceipts = () => readJsonFile(readReceiptsFilePath, {});
+const markMessageRead = async (messageId, userId) => {
+  const receipts = await getReadReceipts();
+  if (!receipts[messageId]) {
+    receipts[messageId] = [];
   }
-}
+  if (!receipts[messageId].includes(userId)) {
+    receipts[messageId].push(userId);
+  }
+  await writeJsonFile(readReceiptsFilePath, receipts);
+  return receipts[messageId];
+};
 
-async function addMessage(message) {
-  const data = await readData();
-  data.messages = data.messages || [];
-  data.messages.push(message);
-  // keep cap of 100 messages same as before
-  if (data.messages.length > 100) data.messages.shift();
-  await writeData(data);
-}
-
-async function markMessageRead(messageId, userId) {
-  const data = await readData();
-  data.readReceipts = data.readReceipts || {};
-  if (!data.readReceipts[messageId]) data.readReceipts[messageId] = {};
-  data.readReceipts[messageId][userId] = new Date().toISOString();
-  await writeData(data);
-  return data.readReceipts[messageId];
-}
-
-async function addReaction(messageId, userId, reaction) {
-  const data = await readData();
-  data.messages = data.messages || [];
-  const message = data.messages.find((m) => String(m.id) === String(messageId));
+// Reaction functions
+const addReaction = async (messageId, userId, reaction) => {
+  const messages = await getMessages();
+  const message = messages.find((m) => String(m.id) === messageId);
   if (message) {
-    message.reactions = message.reactions || {};
-    message.reactions[reaction] = message.reactions[reaction] || [];
+    if (!message.reactions) {
+      message.reactions = {};
+    }
+    if (!message.reactions[reaction]) {
+      message.reactions[reaction] = [];
+    }
     if (!message.reactions[reaction].includes(userId)) {
       message.reactions[reaction].push(userId);
     }
-    await writeData(data);
+    await writeJsonFile(messagesFilePath, messages);
   }
-}
+};
 
-async function removeReaction(messageId, userId, reaction) {
-  const data = await readData();
-  data.messages = data.messages || [];
-  const message = data.messages.find((m) => String(m.id) === String(messageId));
+const removeReaction = async (messageId, userId, reaction) => {
+  const messages = await getMessages();
+  const message = messages.find((m) => String(m.id) === messageId);
   if (message && message.reactions && message.reactions[reaction]) {
     message.reactions[reaction] = message.reactions[reaction].filter(
       (id) => id !== userId
@@ -114,17 +106,17 @@ async function removeReaction(messageId, userId, reaction) {
     if (message.reactions[reaction].length === 0) {
       delete message.reactions[reaction];
     }
-    await writeData(data);
+    await writeJsonFile(messagesFilePath, messages);
   }
-}
+};
 
 module.exports = {
   getMessages,
-  getReadReceipts,
   addMessage,
-  markMessageRead,
   getRooms,
   addRoom,
+  getReadReceipts,
+  markMessageRead,
   addReaction,
   removeReaction,
 };

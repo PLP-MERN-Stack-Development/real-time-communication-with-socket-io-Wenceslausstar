@@ -1,36 +1,38 @@
 import { useState } from "react";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
 
-export default function Login({ onSubmit }) {
-  const [name, setName] = useState("");
-  const [loading, setLoading] = useState(false);
+function Login({ onSubmit }) {
+  const [username, setUsername] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!username.trim()) {
+      setError("Username is required");
+      return;
+    }
 
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/login`, {
+      const response = await fetch(`${SOCKET_URL}/api/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username: trimmed }),
+        body: JSON.stringify({ username }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Login failed");
+        const { error: errorMessage } = await response.json();
+        throw new Error(errorMessage || "Login failed");
       }
 
-      const data = await response.json();
-      onSubmit(data.username, data.token);
+      const { token, username: returnedUsername } = await response.json();
+      onSubmit(returnedUsername, token);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -39,21 +41,42 @@ export default function Login({ onSubmit }) {
   };
 
   return (
-    <div className="login-container">
-      <form onSubmit={handleSubmit} className="login-form">
-        <h2>Join the chat</h2>
-        <input
-          aria-label="username"
-          placeholder="Enter a display name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+    <div className="flex items-center justify-center h-screen -mt-20">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white p-8 rounded-lg shadow-md w-full max-w-sm"
+      >
+        <h2 className="text-2xl font-bold mb-6 text-center text-gray-800">
+          Join Chat
+        </h2>
+        {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
+        <div className="mb-4">
+          <label
+            htmlFor="username"
+            className="block text-gray-700 text-sm font-bold mb-2"
+          >
+            Username
+          </label>
+          <input
+            id="username"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Enter your username"
+            className="w-full px-3 py-2 border rounded-md text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            autoFocus
+          />
+        </div>
+        <button
+          type="submit"
+          className="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-md transition duration-300 disabled:bg-blue-300"
           disabled={loading}
-        />
-        <button type="submit" disabled={loading || !name.trim()}>
+        >
           {loading ? "Joining..." : "Join"}
         </button>
-        {error && <p className="error-message">{error}</p>}
       </form>
     </div>
   );
 }
+
+export default Login;

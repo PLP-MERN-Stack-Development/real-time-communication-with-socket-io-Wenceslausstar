@@ -4,7 +4,7 @@ import { io } from "socket.io-client";
 import { useEffect, useState } from "react";
 
 // Socket.io connection URL
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5000";
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || "http://localhost:5001";
 
 // Create socket instance with namespace
 export const socket = io(`${SOCKET_URL}/chat`, {
@@ -80,6 +80,7 @@ export const useSocket = () => {
   const [lastMessage, setLastMessage] = useState(null);
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState(new Set());
   const [typingUsers, setTypingUsers] = useState([]);
   const [readReceipts, setReadReceipts] = useState({});
   const [myId, setMyId] = useState(socket.id || null);
@@ -402,9 +403,22 @@ export const useSocket = () => {
       setReadReceipts((prev) => ({ ...prev, [messageId]: receipts }));
     };
 
+    const onUserStatus = ({ userId, status }) => {
+      setOnlineUsers((prev) => {
+        const newOnlineUsers = new Set(prev);
+        if (status === "online") {
+          newOnlineUsers.add(userId);
+        } else {
+          newOnlineUsers.delete(userId);
+        }
+        return newOnlineUsers;
+      });
+    };
+
     // Register event listeners
     socket.on("connect", onConnect);
     socket.on("disconnect", onDisconnect);
+    socket.on("user_status", onUserStatus);
     socket.on("receive_message", onReceiveMessage);
     socket.on("private_message", onPrivateMessage);
     socket.on("user_list", onUserList);
@@ -420,6 +434,7 @@ export const useSocket = () => {
     return () => {
       socket.off("connect", onConnect);
       socket.off("disconnect", onDisconnect);
+      socket.off("user_status", onUserStatus);
       socket.off("receive_message", onReceiveMessage);
       socket.off("private_message", onPrivateMessage);
       socket.off("user_list", onUserList);
@@ -488,6 +503,7 @@ export const useSocket = () => {
   return {
     socket,
     isConnected,
+    onlineUsers,
     lastMessage,
     messages,
     users,

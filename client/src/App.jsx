@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from "react";
-import "./App.css";
 import { useSocket } from "./socket/socket";
 import Login from "./components/Login";
 import Chat from "./components/Chat";
@@ -45,9 +44,9 @@ function App() {
   }, [token]);
 
   return (
-    <div className="app-root">
-      <header className="app-header">
-        <h1>Socket.io Chat</h1>
+    <div className="max-w-6xl mx-auto">
+      <header className="py-4 px-6 border-b border-secondary bg-primary">
+        <h1 className="text-2xl font-bold text-gray-800">Socket.io Chat</h1>
       </header>
 
       {!username ? (

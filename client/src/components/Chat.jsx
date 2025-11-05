@@ -1,409 +1,275 @@
-import { useEffect, useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
-export default function Chat({ username, token, socket, onLogout }) {
+const Chat = ({ username, token, socket, onLogout }) => {
   const [message, setMessage] = useState("");
-  const [selectedFile, setSelectedFile] = useState(null);
-  const {
-    connect,
-    disconnect,
-    sendMessage,
-    sendPrivateMessage,
-    sendFile,
-    switchRoom,
-    addReaction,
-    removeReaction,
-    messages,
-    users,
-    typingUsers,
-    isConnected,
-    setTyping,
-    readReceipts,
-    sendReadReceipt,
-    myId,
-    currentRoom,
-    availableRooms,
-    unreadCounts,
-    notificationSettings,
-    setNotificationSettings,
-    loadOlderMessages,
-    searchMessages,
-    hasMoreMessages,
-    loadingOlderMessages,
-  } = socket;
-  const [selectedRecipient, setSelectedRecipient] = useState(null);
-  const messagesRef = useRef(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isSearching, setIsSearching] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const messageListRef = useRef(null);
+
+  const { connect, disconnect, sendMessage, setTyping, messages, users, onlineUsers } = socket;
 
   useEffect(() => {
-    // connect when component mounts
-    connect(username, token);
-    return () => disconnect();
-  }, [username, token]);
+    if (username && token) {
+      connect(username, token);
+    }
+
+    return () => {
+      disconnect();
+    };
+  }, [username, token, connect, disconnect]);
 
   useEffect(() => {
-    // scroll to bottom on new messages
-    if (messagesRef.current) {
-      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    // Scroll to the bottom of the message list whenever new messages arrive
+    if (messageListRef.current) {
+      messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
   }, [messages]);
 
-  // mark messages as read when they arrive / are visible
-  useEffect(() => {
-    if (!myId || !messages || messages.length === 0) return;
-    (async () => {
-      for (const m of messages) {
-        if (m.system) continue;
-        // never mark our own messages as read
-        if (m.senderId === myId) continue;
-        const receiptsForMsg = readReceipts?.[String(m.id)] || {};
-        if (!receiptsForMsg[myId]) {
-          // send a read receipt for this message
-          try {
-            sendReadReceipt(String(m.id));
-          } catch (err) {
-            // ignore
-          }
-        }
-      }
-    })();
-  }, [messages, myId, readReceipts]);
+  const handleTyping = (e) => {
+    setMessage(e.target.value);
 
-  const handleSend = (e) => {
-    e.preventDefault();
-    const trimmed = message.trim();
-    if (!trimmed && !selectedFile) return;
+    if (!isTyping) {
+      setIsTyping(true);
+      setTyping(true);
+    }
 
-    if (selectedFile) {
-      handleFileUpload();
-    } else {
-      if (selectedRecipient) {
-        sendPrivateMessage(selectedRecipient, trimmed);
-      } else {
-        sendMessage(trimmed, (ack) => {
-          if (ack.success) {
-            console.log("Message delivered successfully:", ack.messageId);
-          } else {
-            console.error("Message delivery failed:", ack.error);
-          }
-        });
-      }
-      setMessage("");
+    // Debounce typing event
+    setTimeout(() => {
+      setIsTyping(false);
       setTyping(false);
-    }
+    }, 2000);
   };
 
-  const handleFileUpload = async () => {
-    if (!selectedFile) return;
-
-    const formData = new FormData();
-    formData.append("file", selectedFile);
-
-    try {
-      const response = await fetch("http://localhost:5000/api/upload", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (message.trim()) {
+      sendMessage(message, (ack) => {
+        if (ack.success) {
+          setMessage("");
+        } else {
+          console.error("Message failed to send");
+        }
       });
-
-      if (response.ok) {
-        const fileData = await response.json();
-        sendFile(fileData);
-        setSelectedFile(null);
-        setMessage("");
-        setTyping(false);
-      } else {
-        console.error("File upload failed");
-      }
-    } catch (error) {
-      console.error("File upload error:", error);
-    }
-  };
-
-  const handleFileSelect = (e) => {
-    setSelectedFile(e.target.files[0]);
-  };
-
-  const handleReaction = (messageId, reaction) => {
-    const message = messages.find((m) => String(m.id) === String(messageId));
-    if (!message) return;
-
-    const hasReacted = message.reactions?.[reaction]?.includes(myId);
-    if (hasReacted) {
-      removeReaction(messageId, reaction);
-    } else {
-      addReaction(messageId, reaction);
     }
   };
 
   return (
-    <div className="chat-root">
-      <aside className="chat-sidebar">
-        <div className="sidebar-header">
-          <strong>You:</strong>
-          <div>{username}</div>
-          <div className="notification-settings">
-            <label>
-              <input
-                type="checkbox"
-                checked={notificationSettings.soundEnabled}
-                onChange={(e) =>
-                  setNotificationSettings((prev) => ({
-                    ...prev,
-                    soundEnabled: e.target.checked,
-                  }))
-                }
-              />
-              Sound
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={notificationSettings.browserEnabled}
-                onChange={(e) =>
-                  setNotificationSettings((prev) => ({
-                    ...prev,
-                    browserEnabled: e.target.checked,
-                  }))
-                }
-              />
-              Browser
-            </label>
-          </div>
-          <button
-            onClick={() => {
-              onLogout();
-              disconnect();
-            }}
-          >
-            Logout
-          </button>
-        </div>
-
-        <div className="rooms-list">
-          <h3>Rooms</h3>
-          <ul>
-            {availableRooms?.map((room) => (
-              <li key={room}>
+    <div className="flex h-[calc(100vh-80px)]">
+      <div className="w-64 bg-gray-100 p-4 border-r border-gray-200">
+        <h2 className="text-lg font-bold mb-4">Users</h2>
+        <ul>
+          {users.map((user) => (
+            <li key={user.id} className="flex items-center mb-2">
+              <span
+                className={`w-3 h-3 rounded-full mr-2 ${
+                  onlineUsers.has(user.id) ? "bg-green-500" : "bg-gray-400"
+                }`}
+              ></span>
+              <span>{user.username}</span>
+              {user.id !== socket.myId && (
                 <button
-                  className={currentRoom === room ? "room-selected" : ""}
-                  onClick={() => switchRoom(room)}
-                >
-                  #{room}
-                  {unreadCounts[room] > 0 && (
-                    <span className="unread-badge">{unreadCounts[room]}</span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <div className="users-list">
-          <h3>Online ({users?.length || 0})</h3>
-          <ul>
-            {users
-              ?.filter((u) => u.username !== username)
-              .map((u) => (
-                <li key={u.id}>
-                  <button
-                    className={
-                      selectedRecipient === u.id ? "user-selected" : ""
+                  onClick={() => {
+                    const message = prompt(`Send a private message to ${user.username}`);
+                    if (message) {
+                      socket.sendPrivateMessage(user.id, message);
                     }
-                    onClick={() => setSelectedRecipient(u.id)}
-                    title={`Private message to ${u.username}`}
-                  >
-                    {u.username}
-                  </button>
-                </li>
-              ))}
-          </ul>
-
-          {selectedRecipient && (
-            <div className="private-target">
-              <small>Sending privately to:</small>
-              <div>
-                {users.find((u) => u.id === selectedRecipient)?.username ||
-                  "Unknown"}
-                <button
-                  className="clear-target"
-                  onClick={() => setSelectedRecipient(null)}
+                  }}
+                  className="ml-auto text-xs bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-1 px-2 rounded"
                 >
-                  Clear
+                  Send PM
                 </button>
-              </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        <h2 className="text-lg font-bold mt-4 mb-2">Rooms</h2>
+        <ul>
+          {socket.availableRooms.map((room) => (
+            <li key={room} className="mb-2">
+              <button
+                onClick={() => socket.switchRoom(room)}
+                className={`w-full text-left px-2 py-1 rounded ${
+                  socket.currentRoom === room
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-300 hover:bg-gray-400"
+                }`}
+              >
+                # {room}
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          onClick={() => {
+            const newRoom = prompt("Enter new room name");
+            if (newRoom) {
+              socket.switchRoom(newRoom);
+            }
+          }}
+          className="w-full mt-2 text-sm bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-1 px-2 rounded"
+        >
+          + Add Room
+        </button>
+      </div>
+      <div className="flex-1 flex flex-col">
+        <div className="flex-1 p-4 overflow-y-auto" ref={messageListRef}>
+          {socket.hasMoreMessages && (
+            <div className="text-center mb-4">
+              <button
+                onClick={() => socket.loadOlderMessages()}
+                disabled={socket.loadingOlderMessages}
+                className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 transition duration-300 disabled:bg-gray-200"
+              >
+                {socket.loadingOlderMessages ? "Loading..." : "Load More"}
+              </button>
             </div>
           )}
-        </div>
-      </aside>
-
-      <main className="chat-main">
-        <div className="search-bar">
-          <input
-            type="text"
-            placeholder="Search messages..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                setIsSearching(true);
-                searchMessages(searchTerm).finally(() => setIsSearching(false));
-              }
-            }}
-          />
-          <button
-            onClick={() => {
-              setIsSearching(true);
-              searchMessages(searchTerm).finally(() => setIsSearching(false));
-            }}
-            disabled={isSearching}
-          >
-            {isSearching ? "Searching..." : "Search"}
-          </button>
-          {searchTerm && (
-            <button
-              onClick={() => {
-                setSearchTerm("");
-                setIsSearching(true);
-                searchMessages("").finally(() => setIsSearching(false));
-              }}
+          {messages.map((msg, index) => (
+            <div
+              key={index}
+              className={`flex ${
+                msg.sender === username ? "justify-end" : "justify-start"
+              }`}
             >
-              Clear
-            </button>
-          )}
-        </div>
-        <div className="messages" ref={messagesRef} aria-live="polite">
-          {hasMoreMessages && !isSearching && (
-            <button
-              className="load-more-btn"
-              onClick={() => loadOlderMessages()}
-              disabled={loadingOlderMessages}
-            >
-              {loadingOlderMessages ? "Loading..." : "Load Older Messages"}
-            </button>
-          )}
-          {messages?.map((m) => (
-            <div key={m.id} className={m.system ? "msg-system" : "msg"}>
-              {m.system ? (
-                <em>{m.message}</em>
-              ) : (
-                <>
-                  <div className="msg-meta">
-                    <strong>{m.sender}</strong>
-                    {m.isPrivate && (
-                      <span className="private-badge">private</span>
-                    )}
-                    <span className="msg-time">
-                      {new Date(m.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="msg-body">
-                    {m.file ? (
-                      m.file.mimetype?.startsWith("image/") ? (
-                        <div>
-                          <img
-                            src={`http://localhost:5000${m.file.url}`}
-                            alt={m.file.filename}
-                            style={{ maxWidth: "200px", maxHeight: "200px" }}
-                          />
-                          <p>{m.message}</p>
-                        </div>
-                      ) : (
-                        <div>
-                          <a
-                            href={`http://localhost:5000${m.file.url}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            📎 {m.file.filename}
-                          </a>
-                          <p>{m.message}</p>
-                        </div>
-                      )
+              <div
+                className={`max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg mb-2 ${
+                  msg.isPrivate
+                    ? "bg-purple-500 text-white"
+                    : msg.sender === username
+                    ? "bg-blue-500 text-white"
+                    : "bg-gray-200 text-gray-800"
+                }`}
+              >
+                <p className="font-bold">{msg.sender}{msg.isPrivate ? " (private)" : ""}</p>
+                {msg.file ? (
+                  <div>
+                    {msg.file.mimetype.startsWith("image/") ? (
+                      <img src={msg.file.data} alt={msg.file.filename} className="max-w-xs rounded" />
                     ) : (
-                      m.message
+                      <a
+                        href={msg.file.data}
+                        download={msg.file.filename}
+                        className="text-blue-200 hover:underline"
+                      >
+                        {msg.file.filename}
+                      </a>
                     )}
                   </div>
-                  {!m.system && (
-                    <div className="msg-reactions">
-                      {["👍", "❤️", "😂", "😮", "😢", "😡"].map((reaction) => {
-                        const count = m.reactions?.[reaction]?.length || 0;
-                        const hasReacted =
-                          m.reactions?.[reaction]?.includes(myId);
-                        return count > 0 ? (
-                          <button
-                            key={reaction}
-                            className={`reaction-btn ${
-                              hasReacted ? "reacted" : ""
-                            }`}
-                            onClick={() => handleReaction(m.id, reaction)}
-                          >
-                            {reaction} {count}
-                          </button>
-                        ) : null;
-                      })}
-                      <button
-                        className="add-reaction-btn"
-                        onClick={() => {
-                          // Simple reaction picker - could be enhanced
-                          const reaction = prompt(
-                            "Enter reaction: 👍 ❤️ 😂 😮 😢 😡"
-                          );
-                          if (reaction) handleReaction(m.id, reaction);
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
+                ) : (
+                  <p>{msg.message}</p>
+                )}
+                <p className="text-xs text-right mt-1">
+                  {new Date(msg.timestamp).toLocaleTimeString()}
+                </p>
+              </div>
             </div>
           ))}
         </div>
-
-        <div className="typing-indicator">
-          {typingUsers?.length > 0 && (
-            <small>{typingUsers.join(", ")} typing...</small>
-          )}
-        </div>
-
-        <form className="message-form" onSubmit={handleSend}>
-          <input
-            type="file"
-            onChange={handleFileSelect}
-            accept="image/*,.pdf,.txt,.doc,.docx"
-            style={{ display: "none" }}
-            id="file-input"
-          />
-          <label htmlFor="file-input" className="file-upload-btn">
-            📎
-          </label>
-          <input
-            value={message}
-            onChange={(e) => {
-              setMessage(e.target.value);
-              setTyping(!!e.target.value);
-            }}
-            placeholder={
-              isConnected
-                ? selectedFile
-                  ? `Send "${selectedFile.name}" or type a message`
-                  : "Type a message and press Enter"
-                : "Connecting..."
-            }
-            disabled={!isConnected}
-          />
-          <button
-            type="submit"
-            disabled={!isConnected || (!message.trim() && !selectedFile)}
-          >
-            Send
-          </button>
-        </form>
-      </main>
+        <div className="p-4 bg-white border-t border-gray-200">
+          <div className="flex items-center mb-4">
+            <input
+              type="text"
+              placeholder="Search messages..."
+              className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  socket.searchMessages(e.target.value);
+                }
+              }}
+            />
+            <button
+              onClick={() =>
+                socket.searchMessages(
+                  document.querySelector('input[placeholder="Search messages..."]').value
+                )
+              }
+              className="ml-4 px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-300"
+            >
+              Search
+            </button>
+          </div>
+          <form onSubmit={handleSendMessage} className="flex items-center">
+            <input
+              type="text"
+              value={message}
+              onChange={handleTyping}
+              placeholder="Type a message..."
+              className="flex-1 px-4 py-2 border rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+                      <input
+                        type="file"
+                        id="file-input"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (e) => {
+                              const fileData = {
+                                filename: file.name,
+                                mimetype: file.type,
+                                size: file.size,
+                                data: e.target.result,
+                              };
+                              socket.sendFile(fileData);
+                            };
+                            reader.readAsDataURL(file);
+                          }
+                        }}
+                      />
+                      <label
+                        htmlFor="file-input"
+                        className="ml-4 px-4 py-2 bg-gray-300 text-gray-800 rounded-full hover:bg-gray-400 transition duration-300 cursor-pointer"
+                      >
+                        +
+                      </label>
+                      <button
+                        type="submit"
+                        className="ml-4 px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition duration-300"
+                      >
+                        Send
+                      </button>          </form>
+                  <button
+                    onClick={onLogout}
+                    className="mt-2 text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Logout
+                  </button>
+                  <div className="mt-4">
+                    <h3 className="text-lg font-bold mb-2">Settings</h3>
+                    <div className="flex items-center mb-2">
+                      <input
+                        type="checkbox"
+                        id="sound-notifications"
+                        checked={socket.notificationSettings.soundEnabled}
+                        onChange={(e) =>
+                          socket.setNotificationSettings((prev) => ({
+                            ...prev,
+                            soundEnabled: e.target.checked,
+                          }))
+                        }
+                        className="mr-2"
+                      />
+                      <label htmlFor="sound-notifications">Sound Notifications</label>
+                    </div>
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="browser-notifications"
+                        checked={socket.notificationSettings.browserEnabled}
+                        onChange={(e) =>
+                          socket.setNotificationSettings((prev) => ({
+                            ...prev,
+                            browserEnabled: e.target.checked,
+                          }))
+                        }
+                        className="mr-2"
+                      />
+                      <label htmlFor="browser-notifications">Browser Notifications</label>
+                    </div>
+                  </div>        </div>
+      </div>
     </div>
   );
-}
+};
+
+export default Chat;
